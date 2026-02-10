@@ -3,7 +3,7 @@ import os
 import tempfile
 import subprocess
 import requests
-from PyQt6.QtCore import QThread, pyqtSignal, QObject
+from PyQt6.QtCore import QThread, pyqtSignal, QObject, Qt
 from PyQt6.QtWidgets import QMessageBox, QProgressDialog
 
 # --- 1. UPDATE CHECKER THREAD ---
@@ -133,7 +133,7 @@ class Updater(QObject):
         
         # Show progress dialog
         self.progress_dialog = QProgressDialog(tr("lbl_downloading_update"), tr("btn_cancel"), 0, 100, self.parent)
-        self.progress_dialog.setWindowModality(2) # Block window
+        self.progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal) # Block window
         self.progress_dialog.show()
 
         self.downloader = DownloadWorker(self.download_url)

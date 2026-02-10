@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "Pinyin Helper"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "rekimchuk13"
 #define MyAppURL "https://github.com/rekimchuk13/PinyinHelper"
 #define MyAppExeName "PinyinHelper.exe"
