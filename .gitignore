@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# PyInstaller
+build/
+dist/
+# We keep .spec because it is customized
+# *.spec
+
+# Inno Setup
+Output/
+
+# IDEs
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
