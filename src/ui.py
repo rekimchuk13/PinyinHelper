@@ -218,7 +218,7 @@ class MainWindow(QMainWindow):
         sets = QWidget()
         sets.setStyleSheet("background-color: #3a3a3a; border-radius: 8px;")
         h_layout = QHBoxLayout(sets)
-        h_layout.setContentsMargins(10, 8, 10, 8)
+        h_layout.setContentsMargins(10, 13, 10, 13)
         h_layout.setSpacing(12)
 
         self.label_hanzi = QLabel()
@@ -793,44 +793,43 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1000, lambda: self.reset_copy_btn(self.btn_copy_txt, old_text, "#0078d7"))
 
     def setup_styles(self):
-        self.setStyleSheet("""
-            QMainWindow, QWidget { 
+        plus_path = Utils.resource_path(os.path.join("assets", "plus.svg")).replace("\\", "/")
+        minus_path = Utils.resource_path(os.path.join("assets", "minus.svg")).replace("\\", "/")
+
+        self.setStyleSheet(f"""
+            QMainWindow, QWidget {{ 
                 background-color: #2b2b2b; color: #ffffff; 
                 font-family: "Segoe UI", "Microsoft YaHei"; 
                 selection-background-color: #0078d7; selection-color: white;
-            }
-            QLineEdit { 
+            }}
+            QLineEdit {{ 
                 background-color: #3b3b3b; border: 1px solid #555; 
                 padding: 5px; color: #fff; border-radius: 4px; selection-background-color: #0078d7;
-            }
-            QSpinBox { 
+            }}
+            QSpinBox {{ 
                 background-color: #3b3b3b; border: 1px solid #555; 
                 color: #fff; padding-right: 20px; border-radius: 4px;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
+                min-height: 25px;
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
                 subcontrol-origin: border; width: 20px;
                 background-color: #444; border-left: 1px solid #555;
-            }
-            QSpinBox::up-button { 
+            }}
+            QSpinBox::up-button {{ 
                 subcontrol-position: top right; border-top-right-radius: 4px;
-            }
-            QSpinBox::down-button { 
+                image: url({plus_path});
+                width: 20px; height: 15px; /* Adjust height slightly */
+            }}
+            QSpinBox::down-button {{ 
                 subcontrol-position: bottom right; border-bottom-right-radius: 4px;
-            }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #666; }
-
-            QSpinBox::up-arrow {
-                width: 0; height: 0;
-                border-left: 4px solid transparent; border-right: 4px solid transparent;
-                border-bottom: 5px solid white; 
-                subcontrol-origin: content; subcontrol-position: center;
-            }
-            QSpinBox::down-arrow {
-                width: 0; height: 0;
-                border-left: 4px solid transparent; border-right: 4px solid transparent;
-                border-top: 5px solid white;
-                subcontrol-origin: content; subcontrol-position: center;
-            }
+                image: url({minus_path});
+                width: 20px; height: 15px; /* Adjust height slightly */
+            }}
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background-color: #666; }}
+            
+            QSpinBox::up-arrow, QSpinBox::down-arrow {{
+                width: 0; height: 0; border: none; background: none; image: none;
+            }}
         """)
 
     def add_select_all_shortcut(self, widget):
