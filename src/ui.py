@@ -21,6 +21,13 @@ try:
 except ImportError:
     win32clipboard = None
 
+try:
+    import win32com.client
+    import pythoncom
+except ImportError:
+    win32com = None
+    pythoncom = None
+
 HIGH_RES_SCALE = 6.0
 
 class PairWidget(QWidget):
@@ -30,7 +37,7 @@ class PairWidget(QWidget):
         self.pinyin = pinyin_text
         self.index = index
         self.main_window = parent_window
-        self.color = parent_window.render_color  # Initial color from main window
+        self.color = parent_window.render_color
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -120,13 +127,14 @@ class MainWindow(QMainWindow):
 
         self.pairs = []
         self.render_color = QColor(0, 0, 0)
-        self.shortcuts = [] # Keep references
+        self.shortcuts = []
         
         # Font Favorites
         self.fav_fonts_h = self.config.get("favorite_fonts_hanzi", ["Microsoft YaHei", "KaiTi"])
         self.fav_fonts_p = self.config.get("favorite_fonts_pinyin", ["Arial"])
         self.remove_mode_h = False
         self.remove_mode_p = False
+        self.auto_copy_font = False
 
         # --- TRAY ICON ---
         self.tray_icon = QSystemTrayIcon(self)
@@ -140,9 +148,12 @@ class MainWindow(QMainWindow):
         self.tray_menu = QMenu()
         self.action_show = QAction("Show", self)
         self.action_show.triggered.connect(self.show_window)
+        self.action_check_update = QAction("Check for Updates", self)
+        self.action_check_update.triggered.connect(lambda: self.updater.check_for_updates(silent=False))
         self.action_quit = QAction("Quit", self)
         self.action_quit.triggered.connect(self.quit_app)
         self.tray_menu.addAction(self.action_show)
+        self.tray_menu.addAction(self.action_check_update)
         self.tray_menu.addAction(self.action_quit)
         self.tray_icon.setContextMenu(self.tray_menu)
 
@@ -152,6 +163,7 @@ class MainWindow(QMainWindow):
         # --- HOTKEY MONITOR ---
         self.key_monitor = GlobalHotKeyMonitor()
         self.key_monitor.activated.connect(self.activate_from_clipboard)
+        self.key_monitor.activated_replace.connect(self.quick_replace_from_clipboard)
         self.key_monitor.start()
 
         # --- INTERFACE ---
@@ -237,7 +249,7 @@ class MainWindow(QMainWindow):
         self.spin_h = QSpinBox()
         self.spin_h.setFixedWidth(80)
         self.spin_h.setRange(10, 500)
-        self.spin_h.setValue(self.config.get("font_size_hanzi", 32)) # Should be default 32 normally if not saved, but we load safely
+        self.spin_h.setValue(self.config.get("font_size_hanzi", 32))
         self.spin_h.valueChanged.connect(self.on_hanzi_size_changed)
         self.add_select_all_shortcut(self.spin_h)
         h_layout.addWidget(self.spin_h)
@@ -334,6 +346,44 @@ class MainWindow(QMainWindow):
         # Check updates silently after 2 seconds to not block startup
         QTimer.singleShot(2000, lambda: self.updater.check_for_updates(silent=True))
 
+    @staticmethod
+    def _detect_selection_info_com():
+        """Try to get font size and per-character colors from running app via COM."""
+        if not win32com:
+            return None
+        try:
+            pythoncom.CoInitialize()
+        except Exception:
+            pass
+        com_apps = ["KWPP.Application", "PowerPoint.Application"]
+        for prog_id in com_apps:
+            try:
+                app = win32com.client.GetActiveObject(prog_id)
+                sel = app.ActiveWindow.Selection
+                if sel.Type != 3:  # ppSelectionText
+                    continue
+                text_range = sel.TextRange
+                size = text_range.Font.Size
+                if not size or not (8 <= size <= 300):
+                    size = 32
+
+                colors = []
+                count = text_range.Characters().Count
+                for i in range(1, count + 1):
+                    try:
+                        rgb_bgr = text_range.Characters(i, 1).Font.Color.RGB
+                        r = rgb_bgr & 0xFF
+                        g = (rgb_bgr >> 8) & 0xFF
+                        b = (rgb_bgr >> 16) & 0xFF
+                        colors.append(QColor(r, g, b))
+                    except Exception:
+                        colors.append(QColor(0, 0, 0))
+
+                return {"size": int(size), "colors": colors, "font_name": text_range.Font.Name}
+            except Exception:
+                continue
+        return None
+
     def activate_from_clipboard(self):
         """Called on double Ctrl+C"""
         time.sleep(0.1)
@@ -348,35 +398,133 @@ class MainWindow(QMainWindow):
                 
                 if clean_text:
                     detected_size = 32
-                    if mime.hasHtml():
+                    detected_colors = None
+
+                    # Try COM
+                    info = self._detect_selection_info_com()
+                    if info:
+                        detected_size = info["size"]
+                        detected_colors = info["colors"]
+                        if self.auto_copy_font and info.get("font_name"):
+                            font_name = info["font_name"]
+                            if font_name not in self.fav_fonts_h:
+                                self.fav_fonts_h.append(font_name)
+                                self.save_favorite_fonts()
+                                self.update_font_combo("hanzi")
+                            self.font_cb_h.setCurrentText(font_name)
+                    # Fallback: parse clipboard HTML
+                    elif mime.hasHtml():
                         try:
                             html = mime.html()
-                            match = re.search(r'font-size:\s*(\d+(\.\d+)?)(pt|px)', html)
+                            val = None
+                            match = re.search(r'(?:mso-ansi-)?font-size:\s*(\d+(?:\.\d+)?)\s*(pt|px)', html)
                             if match:
                                 val = float(match.group(1))
-                                unit = match.group(3)
+                                unit = match.group(2)
                                 if unit == 'px':
                                     val = val * 0.75
+                            if val is None:
+                                match_font = re.search(r'<font[^>]+size=["\']?(\d+)["\']?', html, re.IGNORECASE)
+                                if match_font:
+                                    html_size = int(match_font.group(1))
+                                    html_to_pt = {1: 8, 2: 10, 3: 12, 4: 14, 5: 18, 6: 24, 7: 36}
+                                    val = html_to_pt.get(html_size, 12)
 
-                                if 8 <= val <= 300:
-                                    detected_size = int(val)
+                            if val is not None and 8 <= val <= 300:
+                                detected_size = int(val)
                         except Exception:
-                            pass # HTML parsing error shouldn't stop flow
+                            pass
 
                     self.entry.setText(clean_text)
                     self.show_window()
 
                     self.spin_h.setValue(detected_size)
                     self.process()
+
+                    if detected_colors:
+                        for i in range(min(len(detected_colors), len(self.pairs))):
+                            color = detected_colors[i]
+                            self.pairs[i]['color'] = color
+                            if i < self.area_layout.count():
+                                w = self.area_layout.itemAt(i).widget()
+                                if w:
+                                    w.color = color
+                                    w.py_edit.setStyleSheet(w.get_style(14))
+                                    w.char_label.setStyleSheet(f"color: {color.name()}; font-size: 24px; font-weight: bold;")
+                        self.preview()
+
                     self.auto_adjust_pinyin_size()
                     return
 
-            # Fallback for empty clipboard or no text
             self.show_window()
             
         except Exception as e:
-            # Catch-all for any clipboard error
             self.show_window()
+
+    def quick_replace_from_clipboard(self):
+        """Called on Ctrl+C then Ctrl+X — silent inline replace."""
+        time.sleep(0.15)
+
+        try:
+            clipboard = QApplication.clipboard()
+            mime = clipboard.mimeData()
+
+            if not mime.hasText():
+                return
+
+            raw_text = mime.text()
+            clean_text = raw_text.replace(" ", "").replace("\n", "").replace("\r", "")
+            if not clean_text:
+                return
+
+            detected_size = 32
+            detected_colors = None
+
+            info = self._detect_selection_info_com()
+            if info:
+                detected_size = info["size"]
+                detected_colors = info["colors"]
+                if self.auto_copy_font and info.get("font_name"):
+                    font_name = info["font_name"]
+                    if font_name not in self.fav_fonts_h:
+                        self.fav_fonts_h.append(font_name)
+                        self.save_favorite_fonts()
+                        self.update_font_combo("hanzi")
+                    self.font_cb_h.setCurrentText(font_name)
+
+            # Generate pairs silently
+            from pypinyin import pinyin as py_pinyin, Style as py_Style
+            raw = py_pinyin(clean_text, style=py_Style.TONE)
+            self.pairs = []
+            for i, ch in enumerate(clean_text):
+                py_text = raw[i][0]
+                color = self.render_color
+                if detected_colors and i < len(detected_colors):
+                    color = detected_colors[i]
+                self.pairs.append({'ch': ch, 'py': py_text, 'color': color})
+
+            self.spin_h.blockSignals(True)
+            self.spin_h.setValue(detected_size)
+            self.spin_h.blockSignals(False)
+            self.auto_adjust_pinyin_size()
+
+            # Copy HTML to clipboard
+            self.copy_as_text_html()
+
+            # Simulate Ctrl+V in the source app
+            time.sleep(0.1)
+            try:
+                from pynput.keyboard import Controller, Key
+                kb = Controller()
+                kb.press(Key.ctrl)
+                kb.press('v')
+                kb.release('v')
+                kb.release(Key.ctrl)
+            except Exception:
+                pass
+
+        except Exception:
+            pass
 
     def on_hanzi_size_changed(self):
         self.auto_adjust_pinyin_size()
@@ -491,6 +639,7 @@ class MainWindow(QMainWindow):
         self.label_hint.setText(tr("tip_hint"))
         self.tray_icon.setToolTip(tr("tray_tooltip"))
         self.action_show.setText(tr("tray_show"))
+        self.action_check_update.setText(tr("tray_check_update"))
         self.action_quit.setText(tr("tray_quit"))
         if self.btn_top.isChecked():
             self.btn_top.setText(tr("btn_top_active"))
@@ -591,8 +740,17 @@ class MainWindow(QMainWindow):
             action_remove = QAction(f"{self.get_translation('btn_remove_font')} '{current_font}'", self)
             action_remove.triggered.connect(lambda: self.remove_font(font_type, current_font))
             menu.addAction(action_remove)
+
+        # Auto-detect font toggle (only for hanzi)
+        if font_type == "hanzi":
+            menu.addSeparator()
+            action_auto_font = QAction(self.get_translation("chk_auto_copy_font"), self)
+            action_auto_font.setCheckable(True)
+            action_auto_font.setChecked(self.auto_copy_font)
+            action_auto_font.toggled.connect(lambda checked: setattr(self, 'auto_copy_font', checked))
+            menu.addAction(action_auto_font)
             
-        menu.exec(QCursor.pos()) # Use global cursor pos for context menu on labels
+        menu.exec(QCursor.pos())
 
     def on_hanzi_font_changed(self, text):
         self.preview()
@@ -615,15 +773,11 @@ class MainWindow(QMainWindow):
             favorites.remove(font_name)
             self.save_favorite_fonts()
             
-            # Determine new selection
             new_selection = None
             if favorites:
-                # If deleted last item, take new last item (which was idx-1)
-                # If deleted middle item, take item at same idx (which was idx+1)
                 new_idx = idx if idx < len(favorites) else len(favorites) - 1
                 new_selection = favorites[new_idx]
             
-            # Update combo
             self.update_font_combo(font_type)
             
             # Start selection
@@ -648,10 +802,7 @@ class MainWindow(QMainWindow):
                 self.font_cb_p.setCurrentText(family)
 
     def show_all_fonts_dialog(self, font_type):
-        pass # Deprecated by user request to remove (...) button, keeping empty/removing if needed later or just delete logic. Checks if dead code removal requested.
-        # User said "remove buttons + - ...", so this method is effectively dead code unless I hook it to context menu? 
-        # User didn't ask for "Show All" in context menu, just "Add new" and "Remove current".
-        # So I will remove this method or leave it pending actual removal. I'll remove it in step 4.
+        pass 
 
     def save_favorite_fonts(self):
         self.config.set("favorite_fonts_hanzi", self.fav_fonts_h)
@@ -780,10 +931,45 @@ class MainWindow(QMainWindow):
 
         html += "</tr></table>"
 
-        mime = QMimeData()
-        mime.setHtml(html)
-        clipboard = QApplication.clipboard()
-        clipboard.setMimeData(mime)
+        plain_py = " ".join(item["py"] for item in self.pairs)
+        plain_hz = "".join(item["ch"] for item in self.pairs)
+        plain_text = f"{plain_py}\n{plain_hz}"
+
+        try:
+            if win32clipboard:
+                # Build CF_HTML with required headers
+                fragment = html
+                html_doc = f"<html><body><!--StartFragment-->{fragment}<!--EndFragment--></body></html>"
+                
+                prefix = "Version:1.0\r\nStartHTML:{:010d}\r\nEndHTML:{:010d}\r\nStartFragment:{:010d}\r\nEndFragment:{:010d}\r\n"
+                dummy = prefix.format(0, 0, 0, 0)
+                prefix_len = len(dummy.encode("utf-8"))
+                
+                html_bytes = html_doc.encode("utf-8")
+                start_html = prefix_len
+                end_html = prefix_len + len(html_bytes)
+                start_frag = prefix_len + html_bytes.find(b"<!--StartFragment-->") + len(b"<!--StartFragment-->")
+                end_frag = prefix_len + html_bytes.find(b"<!--EndFragment-->")
+                
+                cf_html_data = prefix.format(start_html, end_html, start_frag, end_frag).encode("utf-8") + html_bytes
+                
+                win32clipboard.OpenClipboard()
+                win32clipboard.EmptyClipboard()
+                # Set plain text (CF_UNICODETEXT)
+                win32clipboard.SetClipboardData(13, plain_text)
+                # Set HTML (CF_HTML)
+                cf_html = win32clipboard.RegisterClipboardFormat("HTML Format")
+                win32clipboard.SetClipboardData(cf_html, cf_html_data)
+                win32clipboard.CloseClipboard()
+            else:
+                mime = QMimeData()
+                mime.setText(plain_text)
+                mime.setHtml(html)
+                clipboard = QApplication.clipboard()
+                clipboard.setMimeData(mime)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error: {e}")
+            return
 
         old_text = self.btn_copy_txt.text()
         self.btn_copy_txt.setText("✅ OK!")

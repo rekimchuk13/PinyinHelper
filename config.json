@@ -1,8 +1,9 @@
 {
-    "language": "zh",
+    "language": "ru",
     "favorite_fonts_hanzi": [
         "Microsoft YaHei",
-        "KaiTi"
+        "KaiTi",
+        "SimSun"
     ],
     "favorite_fonts_pinyin": [
         "Arial"

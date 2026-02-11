@@ -8,18 +8,20 @@ except ImportError:
 
 class GlobalHotKeyMonitor(QObject):
     activated = pyqtSignal()
+    activated_replace = pyqtSignal()
 
     def __init__(self):
         super().__init__()
-        self.last_press_time = 0
+        self.last_c_time = 0
         self.listener = None
 
     def start(self):
-        # Use GlobalHotKeys for reliable hotkey detection
         try:
             self.listener = keyboard.GlobalHotKeys({
-                '<ctrl>+c': self.on_activate_c,
-                '<ctrl>+с': self.on_activate_c # Russian 'с' just in case
+                '<ctrl>+c': self.on_ctrl_c,
+                '<ctrl>+с': self.on_ctrl_c,
+                '<ctrl>+x': self.on_ctrl_x,
+                '<ctrl>+ч': self.on_ctrl_x,
             })
             self.listener.start()
         except Exception as e:
@@ -32,12 +34,16 @@ class GlobalHotKeyMonitor(QObject):
             except:
                 pass
 
-    def on_activate_c(self):
-        # Called when Ctrl+C is pressed
+    def on_ctrl_c(self):
         current_time = time.time()
-        # Check if less than 0.6s passed since last press
-        if (current_time - self.last_press_time) < 0.6:
+        if (current_time - self.last_c_time) < 0.6:
             self.activated.emit()
-            self.last_press_time = 0 # Reset timer
+            self.last_c_time = 0
         else:
-            self.last_press_time = current_time
+            self.last_c_time = current_time
+
+    def on_ctrl_x(self):
+        current_time = time.time()
+        if (current_time - self.last_c_time) < 0.6:
+            self.activated_replace.emit()
+            self.last_c_time = 0
