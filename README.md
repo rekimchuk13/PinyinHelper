@@ -8,7 +8,7 @@ A useful tool for generating Pinyin from Chinese characters with coloring and cl
 - **Clipboard Integration**: Select text anywhere, press `Ctrl+C` twice to instantly analyze.
 - **Quick Replace** (`Ctrl+C` → `Ctrl+X`): Silently replaces selected text with Pinyin+Hanzi inline.
 - **Color & Font Detection**: Automatically detects per-character colors and font from WPS/PowerPoint via COM.
-- **Export**: Copy as Image or HTML table (for Word/Excel/PowerPoint).
+- **Export**: Copy as Image or HTML table (for Word/Excel/PowerPoint/WPS).
 - **Internationalization**: Supports English, Russian, and Chinese.
 - **Auto-Update**: Checks for new versions on GitHub.
 - **Manual Update Check**: Right-click the tray icon to check for updates manually.
