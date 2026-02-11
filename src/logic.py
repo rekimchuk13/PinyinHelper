@@ -9,6 +9,7 @@ except ImportError:
 class GlobalHotKeyMonitor(QObject):
     activated = pyqtSignal()
     activated_replace = pyqtSignal()
+    ctrl_c_pressed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -41,6 +42,7 @@ class GlobalHotKeyMonitor(QObject):
             self.last_c_time = 0
         else:
             self.last_c_time = current_time
+            self.ctrl_c_pressed.emit()
 
     def on_ctrl_x(self):
         current_time = time.time()

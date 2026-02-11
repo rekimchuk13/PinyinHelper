@@ -135,6 +135,7 @@ class MainWindow(QMainWindow):
         self.remove_mode_h = False
         self.remove_mode_p = False
         self.auto_copy_font = False
+        self._cached_com_info = None
 
         # --- TRAY ICON ---
         self.tray_icon = QSystemTrayIcon(self)
@@ -164,6 +165,7 @@ class MainWindow(QMainWindow):
         self.key_monitor = GlobalHotKeyMonitor()
         self.key_monitor.activated.connect(self.activate_from_clipboard)
         self.key_monitor.activated_replace.connect(self.quick_replace_from_clipboard)
+        self.key_monitor.ctrl_c_pressed.connect(self._cache_com_info)
         self.key_monitor.start()
 
         # --- INTERFACE ---
@@ -384,6 +386,9 @@ class MainWindow(QMainWindow):
                 continue
         return None
 
+    def _cache_com_info(self):
+        self._cached_com_info = self._detect_selection_info_com()
+
     def activate_from_clipboard(self):
         """Called on double Ctrl+C"""
         time.sleep(0.1)
@@ -480,7 +485,10 @@ class MainWindow(QMainWindow):
             detected_size = 32
             detected_colors = None
 
-            info = self._detect_selection_info_com()
+            info = self._cached_com_info
+            self._cached_com_info = None
+            if not info:
+                info = self._detect_selection_info_com()
             if info:
                 detected_size = info["size"]
                 detected_colors = info["colors"]
@@ -492,7 +500,6 @@ class MainWindow(QMainWindow):
                         self.update_font_combo("hanzi")
                     self.font_cb_h.setCurrentText(font_name)
 
-            # Generate pairs silently
             from pypinyin import pinyin as py_pinyin, Style as py_Style
             raw = py_pinyin(clean_text, style=py_Style.TONE)
             self.pairs = []
